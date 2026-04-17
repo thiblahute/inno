@@ -1,10 +1,7 @@
 use std::io::{self, Error, ErrorKind, Read, Seek, SeekFrom, Take};
 
 use flate2::read::ZlibDecoder;
-use liblzma::{
-    read::XzDecoder,
-    stream::{Filters, Stream},
-};
+use lzma_rust2::{Lzma2Reader, LzmaReader};
 
 use crate::{
     error::InnoError,
@@ -24,16 +21,22 @@ const CHUNK_MAGIC: [u8; 4] = [b'z', b'l', b'b', 0x1a];
 pub enum DataChunkReader<R: Read> {
     Stored(Take<R>),
     Zlib(ZlibDecoder<Take<R>>),
-    Lzma(XzDecoder<Take<R>>),
+    Lzma1(LzmaReader<Take<R>>),
+    Lzma2(Lzma2Reader<Take<R>>),
 }
 
-/// Read a 1-byte LZMA2 properties header and create a raw decoder stream.
-fn read_lzma2_stream<R: Read>(reader: &mut R) -> io::Result<Stream> {
+/// Read the 1-byte LZMA2 properties header and derive the dictionary size.
+fn read_lzma2_dict_size<R: Read>(reader: &mut R) -> io::Result<u32> {
     let mut props = [0u8; 1];
     reader.read_exact(&mut props)?;
-    let mut filters = Filters::new();
-    filters.lzma2_properties(&props)?;
-    Stream::new_raw_decoder(&filters).map_err(|e| Error::new(ErrorKind::InvalidData, e))
+    let props = props[0];
+    if props > 40 {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            "invalid LZMA2 properties byte",
+        ));
+    }
+    Ok((2u32 | (u32::from(props) & 1)) << ((u32::from(props) >> 1) + 11))
 }
 
 impl<R: Read + Seek> DataChunkReader<R> {
@@ -64,13 +67,19 @@ impl<R: Read + Seek> DataChunkReader<R> {
             Compression::Zlib => Ok(Self::Zlib(ZlibDecoder::new(limited))),
             Compression::LZMA1 => {
                 let mut limited = limited;
-                let stream = LzmaStreamHeader::read(&mut limited)?;
-                Ok(Self::Lzma(XzDecoder::new_stream(limited, stream)))
+                let (props, dict_size) = LzmaStreamHeader::read(&mut limited)?;
+                Ok(Self::Lzma1(LzmaReader::new_with_props(
+                    limited,
+                    u64::MAX,
+                    props,
+                    dict_size,
+                    None,
+                )?))
             }
             Compression::LZMA2 => {
                 let mut limited = limited;
-                let stream = read_lzma2_stream(&mut limited)?;
-                Ok(Self::Lzma(XzDecoder::new_stream(limited, stream)))
+                let dict_size = read_lzma2_dict_size(&mut limited)?;
+                Ok(Self::Lzma2(Lzma2Reader::new(limited, dict_size, None)))
             }
             other => Err(InnoError::UnsupportedCompression(
                 other.as_str().to_string(),
@@ -84,7 +93,8 @@ impl<R: Read> Read for DataChunkReader<R> {
         match self {
             Self::Stored(r) => r.read(buf),
             Self::Zlib(r) => r.read(buf),
-            Self::Lzma(r) => r.read(buf),
+            Self::Lzma1(r) => r.read(buf),
+            Self::Lzma2(r) => r.read(buf),
         }
     }
 }

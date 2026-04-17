@@ -1,7 +1,7 @@
 use std::io::{Error, ErrorKind, Read, Result, Take};
 
 use flate2::read::ZlibDecoder;
-use liblzma::read::XzDecoder;
+use lzma_rust2::LzmaReader;
 use zerocopy::LE;
 
 use crate::{
@@ -32,8 +32,14 @@ impl<R: Read> InnoStreamReader<R> {
         Ok(Self {
             inner: match compression {
                 Compression::LZMA1(_) => {
-                    let stream = LzmaStreamHeader::read(&mut chunk_reader)?;
-                    Decoder::LZMA1(XzDecoder::new_stream(chunk_reader, stream))
+                    let (props, dict_size) = LzmaStreamHeader::read(&mut chunk_reader)?;
+                    Decoder::LZMA1(LzmaReader::new_with_props(
+                        chunk_reader,
+                        u64::MAX,
+                        props,
+                        dict_size,
+                        None,
+                    )?)
                 }
                 Compression::Zlib(_) => Decoder::Zlib(ZlibDecoder::new(chunk_reader)),
                 Compression::Stored(_) => Decoder::Stored(chunk_reader),

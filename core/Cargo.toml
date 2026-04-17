@@ -18,7 +18,7 @@ encoding_rs = { version = "0.8.29", default-features = false, features = ["alloc
 flate2 = { version = "1.0.13", default-features = false, features = ["zlib"] }
 itertools = { version = "0.14", default-features = false }
 jiff = { version = "0.2", default-features = false, optional = true }
-liblzma = { version = "0.4", default-features = false, features = ["bindgen"] }
+lzma-rust2 = { version = "0.16", default-features = false, features = ["std"] }
 nt-time = { version = "0.15", default-features = false, features = ["dos-date-time"] }
 thiserror = { version = "2", default-features = false }
 zerocopy = { version = "0.8.27", default-features = false, features = ["derive", "std"] }
@@ -29,7 +29,6 @@ sha1 = { version = "0.11", optional = true, default-features = false }
 [features]
 chrono = ["dep:chrono", "nt-time/chrono"]
 extract = ["dep:sha2", "dep:md-5", "dep:sha1"]
-lzma-static = ["liblzma/static"]
 jiff = ["dep:jiff", "nt-time/jiff"]
 
 [dev-dependencies]
